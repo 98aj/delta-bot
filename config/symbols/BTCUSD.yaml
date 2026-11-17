@@ -1,0 +1,18 @@
+symbol: BTCUSD
+enabled: true
+max_contracts: 2000          # hard cap per position (1 contract = 0.001 BTC)
+
+# Delta keeps ONE net position per contract, so only one strategy can hold BTCUSD at a time.
+# Listed in priority order: if the 4h trend strategy is in a trade, Williams waits.
+strategies:
+  - name: trend_ema_4h       # backtest 2020-26: PF 1.85, max drawdown -6.7%, ~14 trades/yr
+    enabled: true
+    params: {fast: 20, slow: 50, adx_min: 20, stop_atr: 2.0, trail_atr: 3.0}
+
+  - name: williams_intraday  # backtest 2020-26 (1h): PF ~1.10, ~2 trades/week, flat by 00:00 UTC (05:30 IST)
+    enabled: true
+    params: {k: 0.5, trend_filter: true, trend_sma_days: 20, last_entry_hour: 20}
+
+  - name: donchian_4h        # alternative 4h trend system, off by default
+    enabled: false
+    params: {entry_n: 20, exit_n: 10, stop_atr: 2.0}

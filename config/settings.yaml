@@ -1,0 +1,26 @@
+# Global bot settings. Symbol-specific settings live in config/symbols/*.yaml
+
+risk:
+  risk_pct: 0.01              # risk 1% of equity per trade (entry to stop)
+  max_leverage: 3.0           # position notional never above 3x equity
+  exchange_leverage: 5        # leverage set on Delta (only decides margin; real exposure is capped by max_leverage)
+  daily_loss_limit_pct: 0.03  # no new entries for the rest of the UTC day after losing 3% of equity
+
+account:
+  margin_asset: USD           # wallet asset used as equity
+
+execution:
+  stop_trigger: last_traded_price   # last_traded_price (matches backtest) or mark_price
+
+loop:
+  poll_seconds: 30            # how often the bot checks positions and new candles
+  bar_settle_seconds: 15      # wait this long after a candle closes before reading it
+  history_days: 120           # 1h candles loaded at startup (indicator warm-up)
+  max_signal_age_minutes: 10  # never act on a candle that closed longer ago than this (e.g. after a restart)
+
+safety:
+  allow_live: false           # must be true (plus --live and typing LIVE) before the bot touches real money
+
+symbols:
+  - BTCUSD
+  # - ETHUSD                  # add later: create config/symbols/ETHUSD.yaml and uncomment

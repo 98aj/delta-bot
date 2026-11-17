@@ -1,0 +1,13 @@
+# Ready for later: add ETHUSD to `symbols` in settings.yaml to enable.
+# Backtest ETH separately before enabling (see README).
+symbol: ETHUSD
+enabled: true
+max_contracts: 2000
+
+strategies:
+  - name: trend_ema_4h
+    enabled: true
+    params: {fast: 20, slow: 50, adx_min: 20, stop_atr: 2.0, trail_atr: 3.0}
+  - name: williams_intraday
+    enabled: true
+    params: {k: 0.5, trend_filter: true, trend_sma_days: 20, last_entry_hour: 20}
