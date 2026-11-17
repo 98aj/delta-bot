@@ -44,6 +44,7 @@ class SymbolConf:
     strategies: list[StrategyConf]
     enabled: bool = True
     max_contracts: int = 1000
+    fixed_contracts: int = 0      # 0 = size by risk_pct; >0 = always trade this many contracts (still capped)
 
 
 @dataclass
@@ -55,8 +56,11 @@ class Settings:
     max_leverage: float = 3.0
     exchange_leverage: int = 5
     daily_loss_limit_pct: float = 0.03
+    min_contracts: int = 1
+    max_trade_risk_pct: float = 0.05
     margin_asset: str = "USD"
     stop_trigger: str = "last_traded_price"
+    market_data: str = "live"      # where candles for signals come from: live (public) or testnet
     poll_seconds: int = 30
     bar_settle_seconds: int = 15
     history_days: int = 120
@@ -86,7 +90,8 @@ def load_symbol(config_dir: Path, symbol: str) -> SymbolConf:
     strats = [StrategyConf(name=s["name"], params=s.get("params") or {}, enabled=s.get("enabled", True))
               for s in raw.get("strategies", [])]
     return SymbolConf(symbol=raw.get("symbol", symbol), strategies=strats,
-                      enabled=raw.get("enabled", True), max_contracts=int(raw.get("max_contracts", 1000)))
+                      enabled=raw.get("enabled", True), max_contracts=int(raw.get("max_contracts", 1000)),
+                      fixed_contracts=int(raw.get("fixed_contracts", 0) or 0))
 
 
 def load_settings(root: Path | None = None) -> Settings:
@@ -106,8 +111,11 @@ def load_settings(root: Path | None = None) -> Settings:
         max_leverage=float(risk.get("max_leverage", 3.0)),
         exchange_leverage=int(risk.get("exchange_leverage", 5)),
         daily_loss_limit_pct=float(risk.get("daily_loss_limit_pct", 0.03)),
+        min_contracts=int(risk.get("min_contracts", 1)),
+        max_trade_risk_pct=float(risk.get("max_trade_risk_pct", risk.get("min_lot_max_risk_pct", 0.05))),
         margin_asset=str(acct.get("margin_asset", "USD")),
-        stop_trigger=str(exe.get("stop_trigger", "last_traded_price")),
+        stop_trigger=str(exe.get(f"stop_trigger_{env}", exe.get("stop_trigger", "last_traded_price"))),
+        market_data=str(raw.get("market_data", {}).get("source", "live")),
         poll_seconds=int(loop.get("poll_seconds", 30)),
         bar_settle_seconds=int(loop.get("bar_settle_seconds", 15)),
         history_days=int(loop.get("history_days", 120)),
@@ -119,6 +127,13 @@ def load_settings(root: Path | None = None) -> Settings:
         telegram_token=os.environ.get("TELEGRAM_BOT_TOKEN", "").strip(),
         telegram_chat_id=os.environ.get("TELEGRAM_CHAT_ID", "").strip(),
     )
+    if s.market_data not in ENDPOINTS:
+        raise ValueError("market_data.source must be 'live' or 'testnet'")
+    if not 0 < s.max_trade_risk_pct <= 0.10:
+        raise ValueError("max_trade_risk_pct must be between 0 and 10%")
+    for sc in s.symbols:
+        if sc.fixed_contracts < 0:
+            raise ValueError(f"{sc.symbol}: fixed_contracts must be 0 or more")
     if not 0 < s.risk_pct <= 0.05:
         raise ValueError("risk_pct must be between 0 and 5%")
     if not 0 < s.max_leverage <= 10:

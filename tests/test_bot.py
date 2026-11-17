@@ -71,6 +71,43 @@ def test_exchange_stop_detected(tmp_path, h1):
     assert "BTCUSD" not in bot.store.positions
 
 
+def test_stop_trigger_fallback(tmp_path, h1):
+    from deltabot.exchange.rest import DeltaAPIError
+    from deltabot.execution.executor import Executor
+    fc = FakeClient(h1)
+    orig = fc.place_order
+
+    def picky(*a, stop_trigger_method=None, **k):
+        if stop_trigger_method == "mark_price":
+            raise DeltaAPIError(400, {"error": {"code": "invalid_trigger"}}, "/v2/orders")
+        return orig(*a, stop_trigger_method=stop_trigger_method, **k)
+    fc.place_order = picky
+    ex = Executor(fc, "mark_price")
+    oid = ex.place_stop(fc.info, 1, 1, 60_000)
+    assert fc.orders[oid]["stop_price"] == 60_000 and ex.stop_trigger == "last_traded_price"
+
+
+def test_account_wide_leverage_cap(tmp_path, h1):
+    """An open ETH position using the whole 3x leverage budget blocks a new BTC entry; a smaller one shrinks it."""
+    from deltabot.bot import SymbolRuntime
+    from deltabot.config import SymbolConf
+    from deltabot.exchange.rest import SymbolInfo
+    from deltabot.portfolio.state import Position
+    t, stop = first_long(h1)
+    fc = FakeClient(h1[h1.index <= t]); fc.price = float(h1.close[t])
+    bot = make_bot(tmp_path, fc)            # equity 10,000, max_leverage 3 (Settings default)
+    eth = SymbolInfo("ETHUSD", 99, 0.01, 0.05)
+    bot.symbols["ETHUSD"] = SymbolRuntime(SymbolConf("ETHUSD", []), eth, feed=None)
+    strat = bot.symbols["BTCUSD"].strategies[0]
+    close = float(h1.close[t])
+    bot.store.positions["ETHUSD"] = Position("ETHUSD", "x", 1, 1500, 2000.0, "", 1900, 1900, 100)  # 30k = 3x
+    bot._enter(bot.symbols["BTCUSD"], strat, 1, stop, close, at(t))
+    assert fc.pos == 0                                  # no room left
+    bot.store.positions["ETHUSD"].size = 1000           # 20k = 2x used -> 1x (10k) left for BTC
+    bot._enter(bot.symbols["BTCUSD"], strat, 1, stop, close, at(t))
+    assert 0 < fc.pos * 0.001 * close <= 10_000 + 1e-6
+
+
 def test_halts_on_unknown_position(tmp_path, h1):
     fc = FakeClient(h1)
     fc.pos = 7   # someone traded manually

@@ -1,16 +1,25 @@
 # Global bot settings. Symbol-specific settings live in config/symbols/*.yaml
 
 risk:
-  risk_pct: 0.01              # risk 1% of equity per trade (entry to stop)
-  max_leverage: 3.0           # position notional never above 3x equity
-  exchange_leverage: 5        # leverage set on Delta (only decides margin; real exposure is capped by max_leverage)
+  # Lot size: by default each trade risks risk_pct of equity. For a FIXED lot instead, set
+  # fixed_contracts in config/symbols/BTCUSD.yaml (1 contract = 0.001 BTC).
+  risk_pct: 0.02              # risk 2% of equity per trade (entry to stop). 0.015 = 1.5%, 0.01 = 1% (safer)
+  max_leverage: 5.0           # position notional never above 5x equity (keep well below exchange_leverage)
+  exchange_leverage: 10       # leverage set on Delta at startup (decides margin only); matches the 10x on the account
   daily_loss_limit_pct: 0.03  # no new entries for the rest of the UTC day after losing 3% of equity
+  min_contracts: 1            # small accounts: if risk_pct rounds to 0 contracts, still trade this many...
+  max_trade_risk_pct: 0.05    # ...but no single trade may lose more than 5% of equity at its stop (any lot mode)
 
 account:
   margin_asset: USD           # wallet asset used as equity
 
 execution:
-  stop_trigger: last_traded_price   # last_traded_price (matches backtest) or mark_price
+  stop_trigger_live: last_traded_price   # matches the backtest
+  stop_trigger_testnet: mark_price       # testnet has fake spikes (e.g. a $150k print); mark price ignores them
+
+market_data:
+  source: live                # candles for signals: live = real Delta India market (public, no key needed),
+                              # even when orders go to testnet. testnet candles contain bogus prints.
 
 loop:
   poll_seconds: 30            # how often the bot checks positions and new candles
@@ -23,4 +32,4 @@ safety:
 
 symbols:
   - BTCUSD
-  # - ETHUSD                  # add later: create config/symbols/ETHUSD.yaml and uncomment
+  - ETHUSD                    # 1 contract = 0.01 ETH. Both share one balance; together capped at max_leverage

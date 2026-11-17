@@ -1,18 +1,26 @@
 symbol: BTCUSD
 enabled: true
 max_contracts: 2000          # hard cap per position (1 contract = 0.001 BTC)
+fixed_contracts: 0           # 0 = lot size from risk_pct (recommended). e.g. 5 = always 5 contracts (0.005 BTC),
+                             #     still limited by max_leverage and max_trade_risk_pct in settings.yaml
 
 # Delta keeps ONE net position per contract, so only one strategy can hold BTCUSD at a time.
-# Listed in priority order: if the 4h trend strategy is in a trade, Williams waits.
+# Listed in priority order: while Supertrend is in a trade, Williams waits.
+# Combined backtest 2020-26 (one position, this order), PF 1.31 on unseen 2025-26:
+#   1% risk: ~19.6%/yr, max DD -16.9%   |   2% risk (current settings.yaml): ~38%/yr, max DD -31.9%, 2025 -18.9%
 strategies:
-  - name: trend_ema_4h       # backtest 2020-26: PF 1.85, max drawdown -6.7%, ~14 trades/yr
+  - name: supertrend_4h      # swing: holds days; PF 1.98, ~14%/yr, max DD -14.5%; robust on all 30 settings, BTC + ETH
     enabled: true
-    params: {fast: 20, slow: 50, adx_min: 20, stop_atr: 2.0, trail_atr: 3.0}
+    params: {period: 20, mult: 4.0, stop_atr: 2.0}
 
-  - name: williams_intraday  # backtest 2020-26 (1h): PF ~1.10, ~2 trades/week, flat by 00:00 UTC (05:30 IST)
+  - name: williams_intraday  # intraday (1h): PF ~1.10, ~2 trades/week, flat by 00:00 UTC (05:30 IST)
     enabled: true
     params: {k: 0.5, trend_filter: true, trend_sma_days: 20, last_entry_hour: 20}
 
-  - name: donchian_4h        # alternative 4h trend system, off by default
+  - name: trend_ema_4h       # off: adds little next to Supertrend (combined DD worse)
+    enabled: false
+    params: {fast: 20, slow: 50, adx_min: 20, stop_atr: 2.0, trail_atr: 3.0}
+
+  - name: donchian_4h        # alternative 4h trend system, off
     enabled: false
     params: {entry_n: 20, exit_n: 10, stop_atr: 2.0}

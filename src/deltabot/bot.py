@@ -17,7 +17,7 @@ from dataclasses import dataclass, field
 import numpy as np
 import pandas as pd
 
-from deltabot.config import Settings, SymbolConf
+from deltabot.config import ENDPOINTS, Settings, SymbolConf
 from deltabot.data.candles import CandleFeed
 from deltabot.exchange.rest import DeltaClient, SymbolInfo
 from deltabot.execution.executor import Executor
@@ -48,6 +48,9 @@ class Bot:
                  sleep=time.sleep):
         self.s = settings
         self.c = client or DeltaClient(settings.rest_url, settings.api_key, settings.api_secret)
+        # candles may come from a different environment than orders (live data while paper trading)
+        self.data_client = self.c if (client is not None or settings.market_data == settings.env) \
+            else DeltaClient(ENDPOINTS[settings.market_data]["rest"])
         self.notify = notifier or Notifier(settings.env, settings.telegram_token, settings.telegram_chat_id)
         self.store = StateStore(settings.data_dir / f"state_{settings.env}.json")
         self.journal = Journal(settings.data_dir / f"trades_{settings.env}.db")
@@ -65,7 +68,7 @@ class Bot:
                 continue
             info = self.c.product(sc.symbol)
             strategies = [build(st.name, st.params) for st in sc.strategies if st.enabled]
-            feed = CandleFeed(self.c, sc.symbol, self.s.history_days, self.s.bar_settle_seconds)
+            feed = CandleFeed(self.data_client, sc.symbol, self.s.history_days, self.s.bar_settle_seconds)
             self.symbols[sc.symbol] = SymbolRuntime(sc, info, feed, strategies)
             try:
                 self.c.set_leverage(info.product_id, self.s.exchange_leverage)
@@ -75,7 +78,8 @@ class Bot:
                      info.contract_value, info.tick_size, ", ".join(map(repr, strategies)))
         equity = self.equity()
         self.notify.send(f"Bot started | equity {equity:,.2f} {self.s.margin_asset} | "
-                         f"{', '.join(self.symbols)} | risk {self.s.risk_pct:.1%}/trade")
+                         f"{', '.join(self.symbols)} | risk {self.s.risk_pct:.1%}/trade | "
+                         f"signals from {self.s.market_data} data, stops on {self.s.stop_trigger}")
         for rt in self.symbols.values():
             self.reconcile(rt)
             self._ensure_stop(rt)
@@ -207,13 +211,29 @@ class Bot:
         if blocked:
             self.notify.send(f"{sym}/{strat.name}: {_side_word(side)} signal skipped: {blocked}")
             return
+        # account-wide cap: positions on ALL symbols together stay within max_leverage x equity
+        used = sum(p.size * self.symbols[p.symbol].info.contract_value * p.entry_price
+                   for p in self.store.positions.values() if p.symbol != sym and p.symbol in self.symbols)
+        lev_left = max(0.0, self.s.max_leverage - used / equity) if equity else 0.0
         size = contracts_for_risk(equity, close, stop, rt.info.contract_value, self.s.risk_pct,
-                                  self.s.max_leverage, rt.conf.max_contracts)
+                                  lev_left, rt.conf.max_contracts, self.s.min_contracts,
+                                  self.s.max_trade_risk_pct, rt.conf.fixed_contracts)
+        risk_pct = size * abs(close - stop) * rt.info.contract_value / equity if equity else 0
         if size < 1:
-            log.info("%s/%s: size rounds to 0 contracts, skipped", sym, strat.name)
+            one = abs(close - stop) * rt.info.contract_value / equity if equity else 0
+            if rt.info.contract_value * close > lev_left * equity:   # even 1 contract exceeds the leverage room
+                why = f"account leverage cap reached ({used / equity:.1f}x used by other positions)"
+            else:
+                why = f"even 1 contract would risk {one:.1%} of equity (limit {self.s.max_trade_risk_pct:.0%})"
+            self.notify.send(f"{sym}/{strat.name}: {_side_word(side)} signal skipped: {why}")
             return
+        note = ""
+        if rt.conf.fixed_contracts and size < rt.conf.fixed_contracts:
+            note = f" (fixed lot {rt.conf.fixed_contracts} reduced by leverage/risk caps)"
+        elif not rt.conf.fixed_contracts and risk_pct > self.s.risk_pct * 1.05:
+            note = " (minimum lot, above target)"
         self.notify.send(f"SIGNAL {strat.name} {_side_word(side)} {sym} @ ~{close:,.1f} | stop {stop:,.1f} | "
-                         f"{size} contracts | risk {self.s.risk_pct:.1%}")
+                         f"{size} contracts | risk {risk_pct:.1%}{note}")
         res = self.ex.enter(rt.info, side, size, stop, tag=strat.name, ref_price=close)
         if res is None:
             self.notify.send(f"{sym}: entry aborted (see log)", logging.WARNING)

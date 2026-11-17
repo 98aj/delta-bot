@@ -29,6 +29,29 @@ def test_sizing_by_risk_and_caps():
     assert contracts_for_risk(10_000, 92_000, 92_000, 0.001, 0.01, 3.0, 50) == 0
 
 
+def test_min_lot_for_small_account():
+    # $196, stop $2,851 away: 1% risk = $1.96 < $2.85 per contract -> normally 0
+    assert contracts_for_risk(196, 65_000, 62_149, 0.001, 0.01, 3.0, 2000) == 0
+    # with min 1 contract: risk 1.45% <= 5% cap -> 1 contract
+    assert contracts_for_risk(196, 65_000, 62_149, 0.001, 0.01, 3.0, 2000, 1, 0.05) == 1
+    # stop so wide that 1 contract would risk > 5% ($10 of $196) -> still skipped
+    assert contracts_for_risk(196, 65_000, 55_000, 0.001, 0.01, 3.0, 2000, 1, 0.05) == 0
+    # big accounts unaffected
+    assert contracts_for_risk(10_000, 92_000, 91_000, 0.001, 0.01, 3.0, 10_000, 1, 0.05) == 100
+
+
+def test_fixed_lot_mode_and_caps():
+    # fixed 5 contracts, $10k, stop $1,000 away -> $5 risk (0.05%) -> 5 contracts
+    assert contracts_for_risk(10_000, 65_000, 64_000, 0.001, 0.01, 3.0, 2000, 1, 0.05, fixed_contracts=5) == 5
+    # $196 account: leverage cap 3x = $588 -> 9 contracts max, so fixed 20 becomes 9
+    #   (stop $500 away: 9 x $0.5 = $4.5 = 2.3% risk, under the 5% cap)
+    assert contracts_for_risk(196, 65_000, 64_500, 0.001, 0.01, 3.0, 2000, 1, 0.05, fixed_contracts=20) == 9
+    # risk cap: stop $3,000 away = $3/contract; 5% of $196 = $9.8 -> at most 3 contracts
+    assert contracts_for_risk(196, 65_000, 62_000, 0.001, 0.01, 3.0, 2000, 1, 0.05, fixed_contracts=20) == 3
+    # max_contracts still applies
+    assert contracts_for_risk(10_000, 65_000, 64_000, 0.001, 0.01, 3.0, 4, 1, 0.05, fixed_contracts=5) == 4
+
+
 def test_round_price_direction():
     s = SymbolInfo("BTCUSD", 1, 0.001, 0.5)
     assert s.round_price(100.3, "down") == 100.0

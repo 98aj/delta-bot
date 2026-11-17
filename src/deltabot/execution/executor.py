@@ -59,9 +59,19 @@ class Executor:
 
     def place_stop(self, sym: SymbolInfo, pos_side: int, size: int, stop: float) -> int:
         px = sym.round_price(stop, "down" if pos_side > 0 else "up")
-        order = self.c.place_order(sym.product_id, size, _side(-pos_side), "market_order", reduce_only=True,
-                                   stop_price=px, stop_trigger_method=self.stop_trigger,
-                                   client_order_id=f"db-stop-{int(time.time())}")
+
+        def send(trigger):
+            return self.c.place_order(sym.product_id, size, _side(-pos_side), "market_order", reduce_only=True,
+                                      stop_price=px, stop_trigger_method=trigger,
+                                      client_order_id=f"db-stop-{int(time.time())}")
+        try:
+            order = send(self.stop_trigger)
+        except DeltaAPIError as e:
+            if self.stop_trigger == "last_traded_price":
+                raise
+            log.warning("stop with %s rejected (%s); retrying with last_traded_price", self.stop_trigger, e)
+            self.stop_trigger = "last_traded_price"
+            order = send(self.stop_trigger)
         log.info("stop-loss placed: %s x%d @ %.2f (order %s)", _side(-pos_side), size, px, order.get("id"))
         return int(order["id"])
 

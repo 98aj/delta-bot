@@ -44,4 +44,18 @@ def main(csv: str, start: str = "2020-01-01") -> int:
             "total_return_pct", "cagr_pct", "max_dd_pct", "sharpe"]
     pd.set_option("display.width", 200)
     print(pd.DataFrame(rows)[cols].to_string(index=False))
+
+    # the bot as configured: enabled strategies, one position at a time, priority order
+    from deltabot.backtest.portfolio import run_portfolio, summarize
+    from deltabot.config import ROOT, load_symbol
+    sc = load_symbol(ROOT / "config", "BTCUSD")
+    enabled = [(st.name, st.params) for st in sc.strategies if st.enabled]
+    t = run_portfolio(h1, enabled)
+    print(f"\nBOT AS CONFIGURED ({' > '.join(n for n, _ in enabled)}), one position at a time:")
+    print(summarize(t, h1))
+    by = t.groupby("strategy").agg(trades=("pnl", "size"), pnl=("pnl", "sum"), avg_R=("R", "mean")).round(2)
+    print(by.to_string())
+    yr = t.assign(y=t.exit_time.dt.year).groupby("y").apply(
+        lambda g: round(100 * (g.equity.iloc[-1] / (g.equity.iloc[0] - g.pnl.iloc[0]) - 1), 1), include_groups=False)
+    print("yearly %: " + ", ".join(f"{y}: {v:+.1f}" for y, v in yr.items()))
     return 0
