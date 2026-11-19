@@ -7,7 +7,7 @@
   report       performance from the trade journal
   resume SYM   clear a halt after you fixed a position mismatch
   stop         stop the running bot; --flatten also cancels orders and closes positions
-  backtest     run the strategies on historical candles (data/history/btc_1h.csv)
+  backtest     run the strategies on historical candles (data/history/btc_1h.csv; --symbol ETHUSD for eth_1h.csv)
 """
 from __future__ import annotations
 
@@ -159,7 +159,8 @@ def cmd_stop(s, args) -> int:
 
 def cmd_backtest(s, args) -> int:
     from deltabot.backtest.run import main as bt_main
-    return bt_main(args.csv, args.start)
+    csv = args.csv or str(ROOT / "data" / "history" / f"{args.symbol[:3].lower()}_1h.csv")
+    return bt_main(csv, args.start, args.symbol)
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -178,7 +179,8 @@ def main(argv: list[str] | None = None) -> int:
     sp = sub.add_parser("stop")
     sp.add_argument("--flatten", action="store_true", help="also cancel all orders and close positions")
     bt = sub.add_parser("backtest")
-    bt.add_argument("--csv", default=str(ROOT / "data" / "history" / "btc_1h.csv"))
+    bt.add_argument("--symbol", default="BTCUSD", help="config/symbols/<SYMBOL>.yaml to test (BTCUSD, ETHUSD)")
+    bt.add_argument("--csv", default=None, help="1h history CSV (default: data/history/<btc|eth>_1h.csv)")
     bt.add_argument("--start", default="2020-01-01")
     args = ap.parse_args(argv)
 

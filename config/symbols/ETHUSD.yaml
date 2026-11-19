@@ -1,14 +1,20 @@
-# Ready for later: add ETHUSD to `symbols` in settings.yaml to enable.
-# Same setup as BTC. ETH backtest 2020-26 (Supertrend > Williams, 1% risk): ~19%/yr, max DD -15%.
+# ETHUSD is enabled in settings.yaml `symbols`; shares the account balance and leverage cap with BTCUSD.
+# Priority: Supertrend, then TEP (4h), then Williams. With preempt a 4h signal closes a running Williams trade
+# and takes over; on ETH that helped (Delta ETH data Feb 2024-Nov 2026, 2% risk):
+#   ST > TEP > W, preempt on: ~21%/yr, max DD -22.6%, PF 1.26   |   preempt off: ~8%/yr, DD -28.6%, PF 1.09
 symbol: ETHUSD
 enabled: true
 max_contracts: 2000
 fixed_contracts: 0
+preempt: true
 
 strategies:
   - name: supertrend_4h
     enabled: true
     params: {period: 20, mult: 4.0, stop_atr: 2.0}
+  - name: tep_4h
+    enabled: true
+    params: {n: 20, threshold: 0.4, stop_atr: 2.0, trail_atr: 3.0}
   - name: williams_intraday
     enabled: true
     params: {k: 0.5, trend_filter: true, trend_sma_days: 20, last_entry_hour: 20}

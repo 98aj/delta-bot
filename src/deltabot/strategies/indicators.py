@@ -9,6 +9,20 @@ def atr(df: pd.DataFrame, n: int = 14) -> pd.Series:
     return tr.ewm(alpha=1 / n, adjust=False).mean()
 
 
+def trend_efficiency_pressure(df: pd.DataFrame, n: int = 20, vol_n: int = 50, smooth: int = 3) -> pd.Series:
+    """TEP, -1..+1: net price progress over the last n bars divided by the total distance travelled, with every
+    bar weighted by its relative volume (volume / vol_n-bar average), then EMA-smoothed.
+    +1 = clean up-trend carried by the heavy-volume bars, 0 = chop, -1 = clean down-trend.
+    Without volume data (e.g. an index) it reduces to plain signed efficiency."""
+    if "volume" in df and df.volume.sum() > 0:
+        rv = (df.volume / df.volume.rolling(vol_n, min_periods=10).mean()).fillna(1.0)
+    else:
+        rv = 1.0
+    dc = df.close.diff()
+    raw = (dc * rv).rolling(n).sum() / (dc.abs() * rv).rolling(n).sum()
+    return raw.ewm(span=smooth, adjust=False).mean()
+
+
 def supertrend_direction(df: pd.DataFrame, n: int = 10, mult: float = 3.0) -> pd.Series:
     """+1 while price is above the Supertrend line, -1 while below (standard ATR band rules)."""
     a = atr(df, n).to_numpy()

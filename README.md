@@ -1,6 +1,6 @@
 # deltabot
 
-Trading bot for **Delta Exchange India** BTCUSD perpetual futures. ETH is ready to enable later.
+Trading bot for **Delta Exchange India** BTCUSD and ETHUSD perpetual futures.
 It runs **paper-first on the Delta India demo (testnet) account**.
 
 ## Strategies (backtested 2020-2026, Delta fees, slippage and funding included)
@@ -11,18 +11,39 @@ It runs **paper-first on the Delta India demo (testnet) account**.
 | `supertrend_4h` | 4h | ~22/yr | 1.98 | +145% | -14.5% | Supertrend 20,4 flip; all 30 settings profitable on BTC and ETH |
 | `williams_intraday` | 1h | ~2/week | 1.10 | +44% | -20.9% | flat by 05:30 IST; weak in 2025 (-14%) |
 | `donchian_4h` (off) | 4h | ~1/week | 1.38 | +194% | -18.4% | alternative trend system |
+| `tep_4h` | 4h | ~1/week | 1.43 | +154% | -16.5% | own indicator TEP (below); settings chosen on 2020-23 only, PF 1.42 on unseen BTC 2024-26 |
 
-Delta keeps **one net position per contract**, so only one strategy holds BTCUSD at a time. Priority follows the order in `config/symbols/BTCUSD.yaml`.
-Strategies can block each other, so the **combined** result is what counts (`deltabot backtest` prints it):
+**TEP (Trend Efficiency Pressure)** is this bot's own indicator (`indicators.trend_efficiency_pressure`):
+net price progress over the last 20 bars divided by the total distance travelled, each bar weighted by its
+relative volume, EMA-smoothed. +1 = clean up-trend carried by heavy-volume bars, 0 = chop, -1 = clean down-trend.
+`tep_4h` goes long when TEP crosses above +0.4, short below -0.4, exits when TEP crosses 0 (2 ATR stop, 3 ATR trail).
+Its trades barely overlap with Supertrend's (daily P&L correlation about 0.05).
+
+Delta keeps **one net position per contract**, so only one strategy holds a symbol at a time. Priority follows the
+order in `config/symbols/<SYMBOL>.yaml`: **the 4h strategies (Supertrend, then TEP) come first, and Williams only
+trades while no 4h strategy holds the position.**
+
+`preempt` (per symbol) decides what happens when a 4h signal arrives while Williams is already in a trade:
+`false` = the 4h signal is skipped until Williams is flat; `true` = the bot closes the Williams trade and the 4h
+strategy takes over. A lower-priority strategy never replaces a higher one.
+
+Strategies can block each other, so the **combined** result is what counts (`deltabot backtest` prints it).
+BTC 2020-26 at 1% risk:
 
 | Enabled, priority order | CAGR | Max DD | PF 2025-26 |
 |---|---|---|---|
+| **supertrend_4h > tep_4h > williams_intraday, preempt off (current)** | 17.4% | -18.1% | 1.37 |
+| same, preempt on | 15.7% | -21.3% | 1.15 |
+| supertrend_4h > tep_4h (no Williams) | 17.2% | -13.1% | 1.96 |
+| supertrend_4h > williams_intraday (previous default) | 19.6% | -16.9% | 1.31 |
 | trend_ema_4h > supertrend_4h > williams_intraday | 15.8% | -17.8% | 1.22 |
-| **supertrend_4h > williams_intraday (default)** | 19.6% | -16.9% | 1.31 |
 | supertrend_4h only | 13.9% | -14.5% | 2.28 |
-| trend_ema_4h > williams_intraday (old) | 5.5% | -21.2% | 0.96 |
 
-Run `python -m deltabot backtest` to reproduce these numbers. The backtest uses the same strategy classes as the live bot.
+ETH (Delta data Feb 2024 - Nov 2026, 1% risk), supertrend_4h > tep_4h > williams_intraday with **preempt on
+(current)**: 11.1%/yr, max DD -11.9%, PF 1.28. At 2% risk preempt on/off: ~21%/yr DD -22.6% vs ~8%/yr DD -28.6%.
+
+Run `python -m deltabot backtest` (BTC) or `python -m deltabot backtest --symbol ETHUSD --start 2024-01-01` to
+reproduce these numbers. The backtest uses the same strategy classes as the live bot.
 
 ## Setup (Windows, PowerShell)
 

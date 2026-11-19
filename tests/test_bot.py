@@ -135,3 +135,67 @@ def test_state_survives_restart(tmp_path, h1):
     bot2 = make_bot(tmp_path, fc)    # restart: same exchange, same files
     assert bot2.store.positions["BTCUSD"].size == fc.pos
     assert "BTCUSD" not in bot2.store.state.halted
+
+
+class _FixedSignal:
+    """Stand-in strategy that gives one fixed entry signal on every 1h bar (to drive the priority logic)."""
+    bar_hours = 1
+    min_bars = 1
+
+    def __init__(self, name, side):
+        self.name, self.side = name, side
+
+    def bars(self, h1):
+        return h1
+
+    def signals(self, bars):
+        from deltabot.strategies.base import Strategy
+        s = Strategy.blank(bars)
+        s["side"] = self.side
+        s["stop"] = bars.close - self.side * 1000.0
+        return s
+
+
+def _held_by_williams(tmp_path, h1, preempt, order):
+    """Bot holding a Williams long; strategies replaced by fixed-signal stubs in the given priority order."""
+    t, stop = first_long(h1)
+    fc = FakeClient(h1[h1.index <= t]); fc.price = float(h1.close[t])
+    bot = make_bot(tmp_path, fc)
+    bot.tick(now=at(t))
+    assert bot.store.positions["BTCUSD"].strategy == "williams_intraday" and fc.pos > 0
+    rt = bot.symbols["BTCUSD"]
+    rt.conf.preempt = preempt
+    rt.strategies = order
+    nxt = t + HOUR
+    fc.h1 = h1[h1.index <= nxt]; fc.price = float(h1.close[nxt])
+    return bot, fc, rt, nxt
+
+
+def test_higher_priority_signal_replaces_williams(tmp_path, h1):
+    williams_stub = _FixedSignal("williams_intraday", 0)      # Williams itself: no exit, no new signal
+    bot, fc, rt, nxt = _held_by_williams(tmp_path, h1, True, [_FixedSignal("supertrend_4h", -1), williams_stub])
+    bot.on_bar(rt, fc.h1, at(nxt))
+    pos = bot.store.positions["BTCUSD"]
+    assert pos.strategy == "supertrend_4h" and pos.side == -1 and fc.pos == -pos.size
+    tr = bot.journal.trades()
+    assert len(tr) == 1 and tr.strategy.iloc[0] == "williams_intraday" and tr.reason.iloc[0] == "replaced by supertrend_4h"
+    stops = [o for o in fc.orders.values() if o["stop_price"] is not None]
+    assert len(stops) == 1 and stops[0]["side"] == "buy"     # only the new short's stop is left
+
+
+def test_no_preempt_keeps_williams(tmp_path, h1):
+    bot, fc, rt, nxt = _held_by_williams(tmp_path, h1, False,
+                                         [_FixedSignal("supertrend_4h", -1), _FixedSignal("williams_intraday", 0)])
+    before = fc.pos
+    bot.on_bar(rt, fc.h1, at(nxt))
+    assert bot.store.positions["BTCUSD"].strategy == "williams_intraday" and fc.pos == before
+    assert bot.journal.trades().empty
+
+
+def test_lower_priority_signal_never_replaces(tmp_path, h1):
+    # Williams listed FIRST here, so the other strategy ranks below it and must not take over
+    bot, fc, rt, nxt = _held_by_williams(tmp_path, h1, True,
+                                         [_FixedSignal("williams_intraday", 0), _FixedSignal("tep_4h", -1)])
+    before = fc.pos
+    bot.on_bar(rt, fc.h1, at(nxt))
+    assert bot.store.positions["BTCUSD"].strategy == "williams_intraday" and fc.pos == before

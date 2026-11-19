@@ -35,3 +35,16 @@ def test_williams_rules(h1):
     assert (entries.index.hour < 20).all()                         # no entries after 20:00 UTC
     assert entries.groupby(entries.index.floor("D")).size().max() == 1   # at most one entry per day
     assert s.exit_long[s.index.hour == 23].all()                   # flat at 24:00 UTC
+
+
+def test_tep_range_and_signals(h1):
+    from deltabot.strategies.indicators import trend_efficiency_pressure
+    strat = build("tep_4h")
+    bars = strat.bars(h1)
+    x = trend_efficiency_pressure(bars, 20).dropna()
+    assert x.between(-1, 1).all()
+    sig = strat.signals(bars)
+    longs, shorts = sig[sig.side == 1], sig[sig.side == -1]
+    assert len(longs) and len(shorts)
+    assert (longs.stop < bars.close[longs.index]).all() and (shorts.stop > bars.close[shorts.index]).all()
+    assert (sig.trail == 3.0).all()

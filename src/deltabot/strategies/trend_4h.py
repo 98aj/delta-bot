@@ -3,6 +3,8 @@
 TrendEma4h: EMA 20/50 cross + ADX > 20 + EMA200 filter; 2 ATR initial stop, 3 ATR trailing stop,
             exit on the opposite cross. Backtest 2020-26: PF 1.85, max DD -6.7%, ~14 trades/yr.
 Donchian4h: close beyond the 20-bar high/low; 2 ATR stop; exit on the 10-bar opposite channel.
+TrendEfficiency4h: own indicator TEP (volume-weighted trend efficiency) crossing +/-0.4; exit when TEP
+            crosses 0; 2 ATR stop, 3 ATR trail. Trades barely overlap with Supertrend (daily P&L corr ~0.05).
 """
 from __future__ import annotations
 
@@ -10,7 +12,7 @@ import numpy as np
 import pandas as pd
 
 from deltabot.strategies.base import Strategy
-from deltabot.strategies.indicators import adx, supertrend_direction
+from deltabot.strategies.indicators import adx, supertrend_direction, trend_efficiency_pressure
 
 
 class TrendEma4h(Strategy):
@@ -74,4 +76,28 @@ class Donchian4h(Strategy):
         s["stop"] = np.where(s.side == 1, df.close - p["stop_atr"] * s.atr, df.close + p["stop_atr"] * s.atr)
         s["exit_long"] = df.close < xlo
         s["exit_short"] = df.close > xhi
+        return s
+
+
+class TrendEfficiency4h(Strategy):
+    """Own indicator TEP (see indicators.trend_efficiency_pressure).
+    Long when TEP crosses above +threshold, short below -threshold; exit when TEP crosses back through 0.
+    Settings chosen on BTC 2020-23 only. Unseen data: BTC 2024-26 PF 1.42, ETH 2024-26 PF 1.3-1.5;
+    all 16 tested settings (n 10-40, threshold 0.2-0.5) stayed profitable on unseen BTC 2024-26."""
+    name = "tep_4h"
+    bar_hours = 4
+    min_bars = 100
+    defaults = {"n": 20, "threshold": 0.4, "stop_atr": 2.0, "trail_atr": 3.0}
+
+    def signals(self, df: pd.DataFrame) -> pd.DataFrame:
+        p = self.p
+        s = self.blank(df)
+        x = trend_efficiency_pressure(df, p["n"])
+        t = p["threshold"]
+        s.loc[(x > t) & (x.shift() <= t), "side"] = 1
+        s.loc[(x < -t) & (x.shift() >= -t), "side"] = -1
+        s["stop"] = np.where(s.side == 1, df.close - p["stop_atr"] * s.atr, df.close + p["stop_atr"] * s.atr)
+        s["trail"] = p["trail_atr"]
+        s["exit_long"] = x < 0
+        s["exit_short"] = x > 0
         return s

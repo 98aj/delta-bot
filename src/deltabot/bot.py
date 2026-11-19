@@ -186,12 +186,30 @@ class Bot:
                 self._manage(rt, pos, sig, close)
             elif pos is None and sig.side != 0:
                 self._enter(rt, strat, int(sig.side), float(sig.stop), close, now)
+            elif pos is not None and sig.side != 0 and rt.conf.preempt and self._outranks(rt, strat, pos):
+                self.notify.send(f"{rt.conf.symbol}: {strat.name} {_side_word(int(sig.side))} signal has priority, "
+                                 f"closing the {pos.strategy} {_side_word(pos.side)} position first")
+                fill = self.ex.exit(rt.info, pos.side, pos.size, pos.stop_order_id, tag="preempt", ref_price=close)
+                if fill.size < pos.size:
+                    self.notify.send(f"{rt.conf.symbol}: could not close {pos.strategy} position, "
+                                     f"{strat.name} entry skipped", logging.WARNING)
+                    continue
+                self._record_exit(rt, pos, fill.price or close, f"replaced by {strat.name}")
+                self._enter(rt, strat, int(sig.side), float(sig.stop), close, now)
             elif pos is not None and sig.side != 0:
                 log.info("%s/%s: %s signal skipped, %s already holds the position", rt.conf.symbol, strat.name,
                          _side_word(int(sig.side)), pos.strategy)
             else:
                 log.info("%s/%s: bar %s close %.1f, no signal", rt.conf.symbol, strat.name,
                          bars.index[-1].strftime("%m-%d %H:%M"), close)
+
+    @staticmethod
+    def _outranks(rt: SymbolRuntime, strat: Strategy, pos: Position) -> bool:
+        """True if strat comes before the position's owner in the priority list (an owner that is no longer
+        enabled ranks last)."""
+        order = [s.name for s in rt.strategies]
+        owner = order.index(pos.strategy) if pos.strategy in order else len(order)
+        return order.index(strat.name) < owner
 
     def _entries_blocked(self, now: pd.Timestamp, equity: float) -> str | None:
         day_start = now.floor("D")

@@ -45,6 +45,8 @@ class SymbolConf:
     enabled: bool = True
     max_contracts: int = 1000
     fixed_contracts: int = 0      # 0 = size by risk_pct; >0 = always trade this many contracts (still capped)
+    preempt: bool = False         # True: an entry signal from a higher-priority strategy closes a lower-priority
+                                  # strategy's position and takes over (e.g. Supertrend replaces a Williams trade)
 
 
 @dataclass
@@ -91,7 +93,8 @@ def load_symbol(config_dir: Path, symbol: str) -> SymbolConf:
               for s in raw.get("strategies", [])]
     return SymbolConf(symbol=raw.get("symbol", symbol), strategies=strats,
                       enabled=raw.get("enabled", True), max_contracts=int(raw.get("max_contracts", 1000)),
-                      fixed_contracts=int(raw.get("fixed_contracts", 0) or 0))
+                      fixed_contracts=int(raw.get("fixed_contracts", 0) or 0),
+                      preempt=bool(raw.get("preempt", False)))
 
 
 def load_settings(root: Path | None = None) -> Settings:

@@ -5,13 +5,21 @@ fixed_contracts: 0           # 0 = lot size from risk_pct (recommended). e.g. 5 
                              #     still limited by max_leverage and max_trade_risk_pct in settings.yaml
 
 # Delta keeps ONE net position per contract, so only one strategy can hold BTCUSD at a time.
-# Listed in priority order: while Supertrend is in a trade, Williams waits.
-# Combined backtest 2020-26 (one position, this order), PF 1.31 on unseen 2025-26:
-#   1% risk: ~19.6%/yr, max DD -16.9%   |   2% risk (current settings.yaml): ~38%/yr, max DD -31.9%, 2025 -18.9%
+# Listed in PRIORITY order: the 4h strategies (Supertrend, then TEP) come first; Williams only trades while
+# neither 4h strategy holds the position.
+# preempt: true would also let a 4h signal close a running Williams trade and take over. On BTC that HURT
+# in the backtest (2% risk, 2020-26: ~29%/yr, DD -39% with preempt vs ~33%/yr, DD -34% without), so it is off.
+# Combined backtest 2020-26 at 2% risk, this order, no preempt: ~33%/yr, max DD -33.6%, PF 1.37 in 2025-26.
+preempt: false
+
 strategies:
   - name: supertrend_4h      # swing: holds days; PF 1.98, ~14%/yr, max DD -14.5%; robust on all 30 settings, BTC + ETH
     enabled: true
     params: {period: 20, mult: 4.0, stop_atr: 2.0}
+
+  - name: tep_4h             # own indicator: volume-weighted trend efficiency (TEP); unseen BTC 2024-26 PF 1.42
+    enabled: true
+    params: {n: 20, threshold: 0.4, stop_atr: 2.0, trail_atr: 3.0}
 
   - name: williams_intraday  # intraday (1h): PF ~1.10, ~2 trades/week, flat by 00:00 UTC (05:30 IST)
     enabled: true
