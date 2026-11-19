@@ -68,6 +68,70 @@ python -m deltabot resume BTCUSD    # after fixing a position mismatch
 python -m pytest -q                 # tests
 ```
 
+## Running in the background (server / instance)
+
+`scripts/run_bot.bat` runs the bot in a loop: it restarts the bot 30 s after a crash and exits for good when
+`deltabot stop` writes `data\KILL`. `deltabot run` deletes that file when it starts, so the next start works normally.
+
+**Run only one copy at a time.** Two copies would trade on the same account. The instance's public IP must also be
+whitelisted on the Delta API key.
+
+### Option A: quick background run (stops when you log off or reboot)
+
+```powershell
+# start (no window)
+Start-Process -FilePath "C:\Personal project\delta-bot\scripts\run_bot.bat" -WindowStyle Hidden
+
+# stop: exits within ~30 s, exchange stop-losses stay in place
+cd "C:\Personal project\delta-bot"; .venv\Scripts\python.exe -m deltabot stop
+
+# emergency stop: also cancels all orders and closes all positions
+cd "C:\Personal project\delta-bot"; .venv\Scripts\python.exe -m deltabot stop --flatten
+```
+
+### Option B: scheduled task (recommended; survives logoff and starts at boot)
+
+Register it once from PowerShell **run as Administrator**. `ExecutionTimeLimit` must be zero, otherwise Windows kills
+the task after 72 hours:
+
+```powershell
+$a = New-ScheduledTaskAction -Execute "C:\Personal project\delta-bot\scripts\run_bot.bat"
+$t = New-ScheduledTaskTrigger -AtStartup
+$s = New-ScheduledTaskSettingsSet -ExecutionTimeLimit ([TimeSpan]::Zero) -RestartCount 3 -RestartInterval (New-TimeSpan -Minutes 1)
+Register-ScheduledTask -TaskName "DeltaBot" -Action $a -Trigger $t -Settings $s -User "SYSTEM" -RunLevel Highest
+```
+
+| Action | Command |
+|---|---|
+| Start | `Start-ScheduledTask -TaskName DeltaBot` |
+| Stop (clean) | `.venv\Scripts\python.exe -m deltabot stop` (from the project folder) |
+| Force kill (last resort) | `Stop-ScheduledTask -TaskName DeltaBot` |
+| Is it running? | `Get-ScheduledTask -TaskName DeltaBot` (State = Running) |
+| Don't start at boot | `Disable-ScheduledTask -TaskName DeltaBot` |
+| Remove the task | `Unregister-ScheduledTask -TaskName DeltaBot -Confirm:$false` |
+
+After a clean `stop`, the task still starts the bot on the next reboot unless you disable it. Prefer `stop` over a
+force kill. A force kill is still safe because stop-losses live on Delta and state is saved in
+`data\state_testnet.json`.
+
+### Checking on it
+
+```powershell
+Get-Content "C:\Personal project\delta-bot\logs\bot.log" -Tail 30 -Wait   # live log
+.venv\Scripts\python.exe -m deltabot status                              # equity, positions, orders
+```
+
+`logs\service.log` records each crash restart and the final KILL stop.
+
+### Linux instance
+
+```bash
+cd ~/delta-bot && nohup .venv/bin/python -m deltabot run >> logs/console.log 2>&1 &   # start
+cd ~/delta-bot && .venv/bin/python -m deltabot stop                                   # stop
+```
+
+For auto-restart and start at boot on Linux, use a systemd service instead of `nohup`.
+
 ## How it trades
 - It checks Delta every 30 seconds. When a 1h candle closes, it runs the strategies on that closed bar only.
 - Entry is a market order, followed by a **reduce-only stop-loss order on Delta**. If the stop can't be placed, the bot closes the position.
