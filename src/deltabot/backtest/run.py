@@ -19,7 +19,9 @@ def load_h1(csv: str | Path) -> pd.DataFrame:
 def backtest(name: str, h1: pd.DataFrame, params: dict | None = None) -> tuple[pd.DataFrame, dict]:
     strat = REGISTRY[name](**(params or {}))
     bars = strat.bars(h1)
-    trades = E.run(bars, strat.signals(bars), strat.bar_hours)
+    sig = strat.signals(bars)
+    sig.iloc[:strat.min_bars, sig.columns.get_loc("side")] = 0     # live bot also waits for min_bars of history
+    trades = E.run(bars, sig, strat.bar_hours)
     st = E.stats(trades, bars, label=name)
     days = (bars.index[-1] - bars.index[0]).days
     st["trades_per_week"] = round(7 * len(trades) / days, 2) if days else 0

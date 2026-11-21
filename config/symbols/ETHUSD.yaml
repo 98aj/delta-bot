@@ -1,23 +1,19 @@
 # ETHUSD is enabled in settings.yaml `symbols`; shares the account balance and leverage cap with BTCUSD.
-# Priority: Supertrend, then TEP (4h), then Williams. With preempt a 4h signal closes a running Williams trade
-# and takes over; on ETH that helped (Delta ETH data Feb 2024-Nov 2026, 2% risk):
-#   ST > TEP > W, preempt on: ~21%/yr, max DD -22.6%, PF 1.26   |   preempt off: ~8%/yr, DD -28.6%, PF 1.09
+# Priority order: ema_pullback (4h) first, williams_intraday (1h) only while ema_pullback is flat. Same settings
+# as BTC (chosen on BTC only, so ETH is unseen data). Old setup ST > TEP > Williams with preempt: 11.6%/yr, DD -11.9%.
 symbol: ETHUSD
 enabled: true
 max_contracts: 2000
 fixed_contracts: 0
-preempt: true
+# Backtest ETH Apr 2024-Nov 2026 at 1% risk, ema_pullback > williams k=0.7, preempt off: CAGR 34.4%, DD -13.1%
+# (ema_pullback alone: 29.2%, DD -12.4%; preempt on: 32.0%, DD -14.1%). Only ~41 Williams trades: thin evidence.
+preempt: false
 
 strategies:
-  - name: supertrend_4h
+  - name: ema_pullback
     enabled: true
-    params: {period: 20, mult: 4.0, stop_atr: 2.0}
-  - name: tep_4h
-    enabled: true
-    params: {n: 20, threshold: 0.4, stop_atr: 2.0, trail_atr: 3.0}
-  - name: williams_intraday
-    enabled: true
-    params: {k: 0.5, trend_filter: true, trend_sma_days: 20, last_entry_hour: 20}
-  - name: trend_ema_4h
-    enabled: false
-    params: {fast: 20, slow: 50, adx_min: 20, stop_atr: 2.0, trail_atr: 3.0}
+    params: {tf: 4, fast: 50, slow: 100, pb_ema: 50, pb_atr: 0.0, pb_window: 6, adx_min: 20, cross_entry: true}
+
+  - name: williams_intraday  # intraday (1h), priority 2: trades only while ema_pullback is flat; flat by 00:00 UTC
+    enabled: true            # (05:30 IST). k=0.7 = fewer, stronger breakouts than the old k=0.5
+    params: {k: 0.7, trend_filter: true, trend_sma_days: 20, last_entry_hour: 20}

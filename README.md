@@ -3,44 +3,50 @@
 Trading bot for **Delta Exchange India** BTCUSD and ETHUSD perpetual futures.
 It runs **paper-first on the Delta India demo (testnet) account**.
 
-## Strategies (backtested 2020-2026, Delta fees, slippage and funding included)
+## Strategies in use (BTC and ETH)
 
-| Strategy | Timeframe | Trades | PF | Total | Max DD | Notes |
+Both symbols run, in priority order:
+1. **`ema_pullback`** (4h, main strategy, `src/deltabot/strategies/pullback.py`)
+2. **`williams_intraday`** (1h, k=0.7): trades only while `ema_pullback` is flat; always flat by 00:00 UTC (05:30 IST).
+   BTC uses `preempt: true` (an `ema_pullback` signal closes a running Williams trade); ETH uses `preempt: false`.
+
+`ema_pullback` rules:
+
+- **Trend:** EMA 50 above EMA 100 = up-trend, below = down-trend. ADX(14) must be above 20.
+- **Entry 1, the cross:** go long/short on the 4h close where EMA 50 crosses EMA 100.
+- **Entry 2, the pullback:** inside the trend, wait for a candle to touch EMA 50 (close still on the trend side of
+  EMA 100); within the next 6 candles, enter on a reversal candle that closes back past EMA 50, past the previous
+  candle's high (low for shorts) and in the trend's colour.
+- **Stop-loss** (placed on Delta, never moved): beyond the last 5 candles' swing low/high plus 0.25 ATR, kept 1-3 ATR away.
+- **Exit:** the opposite EMA 50/100 cross on a closed 4h candle, or the stop. No take-profit, no trailing stop.
+
+Backtest at 1% risk, $10,000 start, Delta fees, slippage and funding included:
+
+| Symbol | Setup | Profit | CAGR | Max DD | Trades | Win % |
 |---|---|---|---|---|---|---|
-| `trend_ema_4h` | 4h | ~14/yr | 2.14 | +72% | -6.7% | EMA 20/50 + ADX + EMA200, 3 ATR trailing stop |
-| `supertrend_4h` | 4h | ~22/yr | 1.98 | +145% | -14.5% | Supertrend 20,4 flip; all 30 settings profitable on BTC and ETH |
-| `williams_intraday` | 1h | ~2/week | 1.10 | +44% | -20.9% | flat by 05:30 IST; weak in 2025 (-14%) |
-| `donchian_4h` (off) | 4h | ~1/week | 1.38 | +194% | -18.4% | alternative trend system |
-| `tep_4h` | 4h | ~1/week | 1.43 | +154% | -16.5% | own indicator TEP (below); settings chosen on 2020-23 only, PF 1.42 on unseen BTC 2024-26 |
+| BTC 2020-26 | ema_pullback alone | $63,889 | 33.8% | -8.9% | 130 | 27% |
+| BTC 2020-26 | supertrend_4h > tep_4h > williams_intraday (before) | $18,934 | 16.7% | -18.1% | 572 | 37% |
+| ETH Apr 2024-Nov 2026 | ema_pullback alone | $10,413 | 29.2% | -12.4% | 51 | 22% |
+| ETH Apr 2024-Nov 2026 | supertrend_4h > tep_4h > williams_intraday, preempt (before) | $3,559 | 11.6% | -11.9% | 207 | 40% |
+| BTC 2020-26 | **ema_pullback > williams k=0.7, preempt on (now)** | $69,804 | 35.3% | -10.3% | 214 | 35% |
+| ETH Apr 2024-Nov 2026 | **ema_pullback > williams k=0.7, preempt off (now)** | $12,740 | 34.4% | -13.1% | 90 | 36% |
 
-**TEP (Trend Efficiency Pressure)** is this bot's own indicator (`indicators.trend_efficiency_pressure`):
-net price progress over the last 20 bars divided by the total distance travelled, each bar weighted by its
-relative volume, EMA-smoothed. +1 = clean up-trend carried by heavy-volume bars, 0 = chop, -1 = clean down-trend.
-`tep_4h` goes long when TEP crosses above +0.4, short below -0.4, exits when TEP crosses 0 (2 ATR stop, 3 ATR trail).
-Its trades barely overlap with Supertrend's (daily P&L correlation about 0.05).
+The rows marked "now" are the bot as configured. Williams adds little: about +$4,100 on BTC and +$950 on ETH, with a
+slightly deeper drawdown. In the intraday sweep (`scripts/intraday_research.py`, 484 setups: EMA/VWAP pullbacks,
+opening-range breakouts, Williams) 95% lost money on BTC 2024-26 after fees; Williams k=0.7 was the best of them.
 
-Delta keeps **one net position per contract**, so only one strategy holds a symbol at a time. Priority follows the
-order in `config/symbols/<SYMBOL>.yaml`: **the 4h strategies (Supertrend, then TEP) come first, and Williams only
-trades while no 4h strategy holds the position.**
+Settings were chosen on BTC 2020-23 only. Every 4h EMA-50 variant tested (50/100, 50/120, any pullback depth,
+with or without ADX) was profitable on unseen BTC 2024-26, and ETH is entirely unseen data. Faster pairs did worse
+(9/21 lost money on ETH). Expect long losing streaks (up to 8 losses in a row): most profit comes from a few
+trend trades lasting weeks to months. Adding Supertrend or TEP behind it lowered the BTC result because they block
+its trend trades (Delta keeps one net position per contract).
 
-`preempt` (per symbol) decides what happens when a 4h signal arrives while Williams is already in a trade:
-`false` = the 4h signal is skipped until Williams is flat; `true` = the bot closes the Williams trade and the 4h
-strategy takes over. A lower-priority strategy never replaces a higher one.
+The older strategies (`supertrend_4h`, `tep_4h`, `trend_ema_4h`, `donchian_4h`) are no
+longer in the symbol configs, but their code is kept; add an entry back to `config/symbols/<SYMBOL>.yaml` to use one
+(listed in priority order, see `preempt`). **TEP** is this bot's own indicator (`indicators.trend_efficiency_pressure`).
 
-Strategies can block each other, so the **combined** result is what counts (`deltabot backtest` prints it).
-BTC 2020-26 at 1% risk:
-
-| Enabled, priority order | CAGR | Max DD | PF 2025-26 |
-|---|---|---|---|
-| **supertrend_4h > tep_4h > williams_intraday, preempt off (current)** | 17.4% | -18.1% | 1.37 |
-| same, preempt on | 15.7% | -21.3% | 1.15 |
-| supertrend_4h > tep_4h (no Williams) | 17.2% | -13.1% | 1.96 |
-| supertrend_4h > williams_intraday (previous default) | 19.6% | -16.9% | 1.31 |
-| trend_ema_4h > supertrend_4h > williams_intraday | 15.8% | -17.8% | 1.22 |
-| supertrend_4h only | 13.9% | -14.5% | 2.28 |
-
-ETH (Delta data Feb 2024 - Nov 2026, 1% risk), supertrend_4h > tep_4h > williams_intraday with **preempt on
-(current)**: 11.1%/yr, max DD -11.9%, PF 1.28. At 2% risk preempt on/off: ~21%/yr DD -22.6% vs ~8%/yr DD -28.6%.
+Research scripts: `scripts/combo_research.py` (indicator combinations, settings, timeframes) and
+`scripts/pullback_research.py` (ema_pullback sweep). Results are written to `data/research/`.
 
 Run `python -m deltabot backtest` (BTC) or `python -m deltabot backtest --symbol ETHUSD --start 2024-01-01` to
 reproduce these numbers. The backtest uses the same strategy classes as the live bot.

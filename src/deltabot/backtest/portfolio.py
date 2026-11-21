@@ -28,6 +28,7 @@ def run_portfolio(h1: pd.DataFrame, strategies: list[tuple[str, dict]], risk_pct
     for s in strats:
         bars = s.bars(h1)
         sg = s.signals(bars)
+        sg.iloc[:s.min_bars, sg.columns.get_loc("side")] = 0     # live bot also waits for min_bars of history
         sg.index = sg.index + pd.Timedelta(hours=s.bar_hours)
         sg["close"] = bars.close.to_numpy()
         sigs.append(sg.to_dict("index"))
