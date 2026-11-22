@@ -9,6 +9,7 @@ bars it trades on (1h or 4h) and returns a signal frame with one row per bar:
   atr         ATR at the bar
   exit_long   close a long at this bar's close
   exit_short  close a short at this bar's close
+  size        risk multiplier for a new entry (1.0 = the configured risk_pct; 0.5 = half of it)
 
 The same frame drives the backtester and the live bot, so live behaviour matches the tested rules.
 """
@@ -49,6 +50,7 @@ class Strategy:
         s["atr"] = atr(df)
         s["exit_long"] = False
         s["exit_short"] = False
+        s["size"] = 1.0
         return s
 
     def __repr__(self):

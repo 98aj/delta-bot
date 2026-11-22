@@ -1,10 +1,11 @@
 from deltabot.strategies.base import Strategy
 from deltabot.strategies.pullback import EmaPullback
 from deltabot.strategies.trend_4h import Donchian4h, Supertrend4h, TrendEfficiency4h, TrendEma4h
+from deltabot.strategies.trend_rider import TrendRider
 from deltabot.strategies.williams_intraday import WilliamsIntraday
 
 REGISTRY: dict[str, type[Strategy]] = {c.name: c for c in (WilliamsIntraday, TrendEma4h, Supertrend4h, Donchian4h,
-                                                                TrendEfficiency4h, EmaPullback)}
+                                                                TrendEfficiency4h, EmaPullback, TrendRider)}
 
 
 def build(name: str, params: dict | None = None) -> Strategy:
@@ -14,4 +15,4 @@ def build(name: str, params: dict | None = None) -> Strategy:
 
 
 __all__ = ["REGISTRY", "Strategy", "build", "WilliamsIntraday", "TrendEma4h", "Supertrend4h", "Donchian4h",
-           "TrendEfficiency4h", "EmaPullback"]
+           "TrendEfficiency4h", "EmaPullback", "TrendRider"]

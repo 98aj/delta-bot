@@ -39,6 +39,12 @@ class SymbolRuntime:
     strategies: list[Strategy] = field(default_factory=list)
 
 
+def _size_mult(sig: pd.Series) -> float:
+    """Strategy's risk multiplier for this entry (1.0 if it sets none), kept within 0..2."""
+    m = sig.get("size", 1.0)
+    return 1.0 if m is None or m != m else float(min(max(m, 0.0), 2.0))
+
+
 def _side_word(side: int) -> str:
     return "LONG" if side > 0 else "SHORT"
 
@@ -185,7 +191,7 @@ class Bot:
             if pos and pos.strategy == strat.name:
                 self._manage(rt, pos, sig, close)
             elif pos is None and sig.side != 0:
-                self._enter(rt, strat, int(sig.side), float(sig.stop), close, now)
+                self._enter(rt, strat, int(sig.side), float(sig.stop), close, now, _size_mult(sig))
             elif pos is not None and sig.side != 0 and rt.conf.preempt and self._outranks(rt, strat, pos):
                 self.notify.send(f"{rt.conf.symbol}: {strat.name} {_side_word(int(sig.side))} signal has priority, "
                                  f"closing the {pos.strategy} {_side_word(pos.side)} position first")
@@ -195,7 +201,7 @@ class Bot:
                                      f"{strat.name} entry skipped", logging.WARNING)
                     continue
                 self._record_exit(rt, pos, fill.price or close, f"replaced by {strat.name}")
-                self._enter(rt, strat, int(sig.side), float(sig.stop), close, now)
+                self._enter(rt, strat, int(sig.side), float(sig.stop), close, now, _size_mult(sig))
             elif pos is not None and sig.side != 0:
                 log.info("%s/%s: %s signal skipped, %s already holds the position", rt.conf.symbol, strat.name,
                          _side_word(int(sig.side)), pos.strategy)
@@ -219,7 +225,7 @@ class Bot:
         return None
 
     def _enter(self, rt: SymbolRuntime, strat: Strategy, side: int, stop: float, close: float,
-               now: pd.Timestamp) -> None:
+               now: pd.Timestamp, size_mult: float = 1.0) -> None:
         sym = rt.conf.symbol
         if np.isnan(stop) or (close - stop) * side <= 0:
             log.info("%s/%s: signal ignored, stop %.2f on wrong side of %.2f", sym, strat.name, stop, close)
@@ -233,7 +239,8 @@ class Bot:
         used = sum(p.size * self.symbols[p.symbol].info.contract_value * p.entry_price
                    for p in self.store.positions.values() if p.symbol != sym and p.symbol in self.symbols)
         lev_left = max(0.0, self.s.max_leverage - used / equity) if equity else 0.0
-        size = contracts_for_risk(equity, close, stop, rt.info.contract_value, self.s.risk_pct,
+        target_risk = self.s.risk_pct * size_mult      # strategies may size weaker setups down
+        size = contracts_for_risk(equity, close, stop, rt.info.contract_value, target_risk,
                                   lev_left, rt.conf.max_contracts, self.s.min_contracts,
                                   self.s.max_trade_risk_pct, rt.conf.fixed_contracts)
         risk_pct = size * abs(close - stop) * rt.info.contract_value / equity if equity else 0
@@ -248,7 +255,7 @@ class Bot:
         note = ""
         if rt.conf.fixed_contracts and size < rt.conf.fixed_contracts:
             note = f" (fixed lot {rt.conf.fixed_contracts} reduced by leverage/risk caps)"
-        elif not rt.conf.fixed_contracts and risk_pct > self.s.risk_pct * 1.05:
+        elif not rt.conf.fixed_contracts and risk_pct > target_risk * 1.05:
             note = " (minimum lot, above target)"
         self.notify.send(f"SIGNAL {strat.name} {_side_word(side)} {sym} @ ~{close:,.1f} | stop {stop:,.1f} | "
                          f"{size} contracts | risk {risk_pct:.1%}{note}")

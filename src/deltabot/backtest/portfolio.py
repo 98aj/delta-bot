@@ -31,6 +31,8 @@ def run_portfolio(h1: pd.DataFrame, strategies: list[tuple[str, dict]], risk_pct
         sg.iloc[:s.min_bars, sg.columns.get_loc("side")] = 0     # live bot also waits for min_bars of history
         sg.index = sg.index + pd.Timedelta(hours=s.bar_hours)
         sg["close"] = bars.close.to_numpy()
+        if "size" not in sg:
+            sg["size"] = 1.0
         sigs.append(sg.to_dict("index"))
     o, h, l = h1.open.to_numpy(), h1.high.to_numpy(), h1.low.to_numpy()
     idx = h1.index
@@ -59,11 +61,12 @@ def run_portfolio(h1: pd.DataFrame, strategies: list[tuple[str, dict]], risk_pct
             if pending[0] == "enter" and pos is not None and pending[-1]:     # preemption: close, then enter
                 close(i, o[i] * (1 - E.SLIP * pos["side"]))
             if pending[0] == "enter" and pos is None:
-                _, owner, side, stop, trail, _ = pending
+                _, owner, side, stop, trail, mult, _ = pending
                 px = o[i] * (1 + E.SLIP * side)
                 dist = abs(px - stop)
                 if dist > 0 and (px - stop) * side > 0:
                     risk_usd, lev = sizing(eq, peak, equity0) if sizing else (eq * risk_pct, max_lev)
+                    risk_usd *= mult
                     qty = min(risk_usd / dist, eq * lev / px)
                     pos = dict(owner=owner, side=side, qty=qty, entry=px, stop=stop, ebar=i, risk=qty * dist,
                                fee_in=qty * px * E.TAKER, trail=trail)
@@ -83,7 +86,7 @@ def run_portfolio(h1: pd.DataFrame, strategies: list[tuple[str, dict]], risk_pct
             if (preempt and pos and pending is None and rank[s.name] < rank[pos["owner"]] and row["side"] != 0
                     and row["stop"] == row["stop"]):
                 pending = ("enter", s.name, int(row["side"]), float(row["stop"]),
-                           float(row["trail"]) if row["trail"] == row["trail"] else None, True)
+                           float(row["trail"]) if row["trail"] == row["trail"] else None, float(row["size"]), True)
                 break
             if pos and pos["owner"] == s.name:
                 if (pos["side"] == 1 and row["exit_long"]) or (pos["side"] == -1 and row["exit_short"]):
@@ -94,7 +97,7 @@ def run_portfolio(h1: pd.DataFrame, strategies: list[tuple[str, dict]], risk_pct
                         pos["stop"] = cand
             elif pos is None and pending is None and row["side"] != 0 and row["stop"] == row["stop"]:
                 pending = ("enter", s.name, int(row["side"]), float(row["stop"]),
-                           float(row["trail"]) if row["trail"] == row["trail"] else None, False)
+                           float(row["trail"]) if row["trail"] == row["trail"] else None, float(row["size"]), False)
         if eq <= 0:
             break
     if pos:

@@ -10,10 +10,21 @@ fixed_contracts: 0
 preempt: false
 
 strategies:
-  - name: ema_pullback
+  # trend_rider: same trades as ema_pullback, but sized by setup quality (x0.5 on EMA-cross entries, x0.25 when
+  # ADX > 35 or volatility is in its top third), all scaled by boost 1.5. ON for ETH since 2026-11-22.
+  # Never enable both trend_rider and ema_pullback (same trades twice). BTC stays on ema_pullback.
+  # Live-settings backtest Jun 2024-Nov 2026 from $10k, Williams off: BTC ema + ETH rider $82.6k (DD -28.6%),
+  # both ema_pullback $64.4k (-29.8%), both rider $74.2k (-31.0%), BTC rider + ETH ema $52.0k (-28.4%).
+  # Live-settings backtest (2% risk, shared balance, hourly mark-to-market DD), BTC+ETH 2024-26 from $10k:
+  # $74.2k vs $65.9k for ema_pullback > williams at the same -31% drawdown. BTC 2020-26: a tie (2000-contract cap).
+  - name: trend_rider
     enabled: true
+    params: {tf: 4, fast: 50, slow: 100, pb_window: 6, adx_min: 20, cross_entry: true, boost: 1.5}
+
+  - name: ema_pullback       # OFF on ETH (replaced by trend_rider above); same entries and exits
+    enabled: false
     params: {tf: 4, fast: 50, slow: 100, pb_ema: 50, pb_atr: 0.0, pb_window: 6, adx_min: 20, cross_entry: true}
 
-  - name: williams_intraday  # intraday (1h), priority 2: trades only while ema_pullback is flat; flat by 00:00 UTC
-    enabled: true            # (05:30 IST). k=0.7 = fewer, stronger breakouts than the old k=0.5
+  - name: williams_intraday  # OFF (turned off 2026-11-22). Intraday (1h); when on: trades only while ema_pullback is flat; flat by 00:00 UTC
+    enabled: false           # (05:30 IST). k=0.7 = fewer, stronger breakouts than the old k=0.5
     params: {k: 0.7, trend_filter: true, trend_sma_days: 20, last_entry_hour: 20}

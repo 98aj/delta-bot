@@ -5,7 +5,7 @@ import pytest
 
 from deltabot.strategies import REGISTRY, build
 
-COLS = ["side", "stop", "exit_long", "exit_short"]
+COLS = ["side", "stop", "exit_long", "exit_short", "size"]
 
 
 @pytest.mark.parametrize("name", list(REGISTRY))
@@ -48,3 +48,26 @@ def test_tep_range_and_signals(h1):
     assert len(longs) and len(shorts)
     assert (longs.stop < bars.close[longs.index]).all() and (shorts.stop > bars.close[shorts.index]).all()
     assert (sig.trail == 3.0).all()
+
+
+def test_trend_rider_sizing(h1):
+    strat = build("trend_rider", {"boost": 1.9})
+    bars = strat.bars(h1)
+    sig = strat.signals(bars)
+    sizes = set(np.round(sig["size"].unique(), 4))
+    assert sizes <= {1.9, 0.95, 0.475}                      # full, cross (x0.5), weak (x0.25)
+    # same entries, stops and exits as ema_pullback; only the size differs
+    ref = build("ema_pullback").signals(bars)
+    for c in ["side", "exit_long", "exit_short"]:
+        assert (sig[c] == ref[c]).all(), c
+
+
+def test_trend_rider_live_window_matches_backtest(h1):
+    """The live bot only loads ~120 days of 1h candles; the size (ATR percentile) must not depend on older data."""
+    strat = build("trend_rider")
+    bars = strat.bars(h1)
+    full = strat.signals(bars)
+    live_bars = bars.iloc[-720:]                            # 120 days of 4h bars
+    live = strat.signals(live_bars)
+    tail = full.index[-50:]
+    assert np.allclose(live.loc[tail, "size"], full.loc[tail, "size"])

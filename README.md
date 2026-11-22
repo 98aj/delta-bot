@@ -5,10 +5,19 @@ It runs **paper-first on the Delta India demo (testnet) account**.
 
 ## Strategies in use (BTC and ETH)
 
-Both symbols run, in priority order:
-1. **`ema_pullback`** (4h, main strategy, `src/deltabot/strategies/pullback.py`)
-2. **`williams_intraday`** (1h, k=0.7): trades only while `ema_pullback` is flat; always flat by 00:00 UTC (05:30 IST).
-   BTC uses `preempt: true` (an `ema_pullback` signal closes a running Williams trade); ETH uses `preempt: false`.
+- **BTCUSD:** only **`ema_pullback`** (4h, `src/deltabot/strategies/pullback.py`).
+- **ETHUSD:** only **`trend_rider`** (4h, `src/deltabot/strategies/trend_rider.py`, boost 1.5): the same trades as
+  `ema_pullback`, sized by setup quality (see below). `ema_pullback` is turned off for ETH.
+
+Live-settings backtest, Jun 2024-Nov 2026 from $10k (`live_sim`, 2% risk, one shared balance, hourly mark-to-market
+drawdown, Williams off): BTC ema_pullback + ETH trend_rider $82.6k (worst drop -28.6%); both ema_pullback $64.4k
+(-29.8%); both trend_rider $74.2k (-31.0%); BTC trend_rider + ETH ema_pullback $52.0k (-28.4%). This split was picked
+after seeing these results, so expect less going forward.
+
+**`williams_intraday`** (1h, k=0.7) is still listed in the symbol configs but turned off (`enabled: false`, since
+2026-11-22). When on, it trades only while `ema_pullback` is flat and is always flat by 00:00 UTC (05:30 IST); BTC
+uses `preempt: true` (an `ema_pullback` signal closes a running Williams trade), ETH `preempt: false`. It added only
+a little in backtests (see the table below).
 
 `ema_pullback` rules:
 
@@ -24,14 +33,14 @@ Backtest at 1% risk, $10,000 start, Delta fees, slippage and funding included:
 
 | Symbol | Setup | Profit | CAGR | Max DD | Trades | Win % |
 |---|---|---|---|---|---|---|
-| BTC 2020-26 | ema_pullback alone | $63,889 | 33.8% | -8.9% | 130 | 27% |
+| BTC 2020-26 | **ema_pullback alone (now)** | $63,889 | 33.8% | -8.9% | 130 | 27% |
 | BTC 2020-26 | supertrend_4h > tep_4h > williams_intraday (before) | $18,934 | 16.7% | -18.1% | 572 | 37% |
-| ETH Apr 2024-Nov 2026 | ema_pullback alone | $10,413 | 29.2% | -12.4% | 51 | 22% |
+| ETH Apr 2024-Nov 2026 | **ema_pullback alone (now)** | $10,413 | 29.2% | -12.4% | 51 | 22% |
 | ETH Apr 2024-Nov 2026 | supertrend_4h > tep_4h > williams_intraday, preempt (before) | $3,559 | 11.6% | -11.9% | 207 | 40% |
-| BTC 2020-26 | **ema_pullback > williams k=0.7, preempt on (now)** | $69,804 | 35.3% | -10.3% | 214 | 35% |
-| ETH Apr 2024-Nov 2026 | **ema_pullback > williams k=0.7, preempt off (now)** | $12,740 | 34.4% | -13.1% | 90 | 36% |
+| BTC 2020-26 | ema_pullback > williams k=0.7, preempt on (until 2026-11-22) | $69,804 | 35.3% | -10.3% | 214 | 35% |
+| ETH Apr 2024-Nov 2026 | ema_pullback > williams k=0.7, preempt off (until 2026-11-22) | $12,740 | 34.4% | -13.1% | 90 | 36% |
 
-The rows marked "now" are the bot as configured. Williams adds little: about +$4,100 on BTC and +$950 on ETH, with a
+The rows marked "now" are the bot as configured. Williams added little: about +$4,100 on BTC and +$950 on ETH, with a
 slightly deeper drawdown. In the intraday sweep (`scripts/intraday_research.py`, 484 setups: EMA/VWAP pullbacks,
 opening-range breakouts, Williams) 95% lost money on BTC 2024-26 after fees; Williams k=0.7 was the best of them.
 
@@ -45,7 +54,18 @@ The older strategies (`supertrend_4h`, `tep_4h`, `trend_ema_4h`, `donchian_4h`) 
 longer in the symbol configs, but their code is kept; add an entry back to `config/symbols/<SYMBOL>.yaml` to use one
 (listed in priority order, see `preempt`). **TEP** is this bot's own indicator (`indicators.trend_efficiency_pressure`).
 
-Research scripts: `scripts/combo_research.py` (indicator combinations, settings, timeframes) and
+**`trend_rider`** (`src/deltabot/strategies/trend_rider.py`) is **on for ETHUSD** and listed but off
+(`enabled: false`) for BTCUSD. It takes the same trades as `ema_pullback` and sizes each one by setup quality: x0.5 risk on
+EMA-cross entries, x0.25 when ADX > 35 or volatility is in its top third, all scaled by `boost: 1.5`. Other rule
+changes (entry filters, regime filter, breakouts, tighter exits) failed on unseen data; only the sizing held up.
+With the live settings (`scripts/live_backtest.py`: 2% risk, shared balance, hourly mark-to-market drawdown), BTC+ETH
+Jun 2024-Nov 2026 from $10k ended at $74.2k (both coins on trend_rider) vs $65.9k for ema_pullback > williams, both with a -31% worst drop. On BTC
+2020-26 the two tie (the 2000-contract cap binds). To switch a symbol, set `trend_rider` to `enabled: true` and
+`ema_pullback` to `enabled: false` in its symbol config, then restart the bot; never enable both.
+Note: the drawdowns in the table above are closed-trade only; measured hourly on open positions they are about 3x larger.
+
+Research scripts: `scripts/rider_research.py` and `scripts/rider_compare.py` (trend_rider sizing),
+`scripts/exit_research.py` (exit variants), `scripts/combo_research.py` (indicator combinations, settings, timeframes) and
 `scripts/pullback_research.py` (ema_pullback sweep). Results are written to `data/research/`.
 
 Run `python -m deltabot backtest` (BTC) or `python -m deltabot backtest --symbol ETHUSD --start 2024-01-01` to

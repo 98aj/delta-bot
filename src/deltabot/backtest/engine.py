@@ -30,13 +30,14 @@ def run(df, sig, hours_per_bar, equity0=10_000.0):
     side = sig.side.to_numpy(); stop_a = sig.stop.to_numpy(); tgt_a = sig.target.to_numpy()
     trail_a = sig.trail.to_numpy(); atr_a = sig.atr.to_numpy()
     xl = sig.exit_long.to_numpy(); xs = sig.exit_short.to_numpy()
+    size_a = sig["size"].to_numpy() if "size" in sig else np.ones(len(df))
     lim_a = sig["limit"].to_numpy() if "limit" in sig else np.full(len(df), np.nan)
     exp_a = sig["expiry"].to_numpy() if "expiry" in sig else np.zeros(len(df))
     idx = df.index
 
     eq = equity0
     pos = 0; entry = stp = tgt = trail = qty = 0.0; ebar = 0; efee = 0.0; risk_amt = 0.0
-    pend = None          # (side, stop, target, trail, limit or None, expiry_bar)
+    pend = None          # (side, stop, target, trail, limit or None, expiry_bar, size multiplier)
     pend_exit = False
     trades = []
 
@@ -59,7 +60,7 @@ def run(df, sig, hours_per_bar, equity0=10_000.0):
 
         # 2) pending entry
         if not pos and pend is not None:
-            s, sp, tp, tr, lim, exp = pend
+            s, sp, tp, tr, lim, exp, mult = pend
             filled = False
             if lim is None:
                 px = o[i] * (1 + SLIP * s); fee = TAKER; filled = True
@@ -71,7 +72,7 @@ def run(df, sig, hours_per_bar, equity0=10_000.0):
             if filled:
                 dist = abs(px - sp)
                 if dist > 0 and (sp - px) * s < 0:
-                    risk_amt = eq * RISK_PCT
+                    risk_amt = eq * RISK_PCT * mult
                     qty = min(risk_amt / dist, eq * MAX_LEV / px)
                     risk_amt = qty * dist
                     pos, entry, stp, tgt, trail, ebar = s, px, sp, tp, tr, i
@@ -99,7 +100,7 @@ def run(df, sig, hours_per_bar, equity0=10_000.0):
         # 4) new signal at close of bar i
         if not pos and pend is None and side[i] != 0 and not np.isnan(stop_a[i]):
             lim = None if np.isnan(lim_a[i]) else lim_a[i]
-            pend = (int(side[i]), stop_a[i], tgt_a[i], trail_a[i], lim, i + int(exp_a[i]))
+            pend = (int(side[i]), stop_a[i], tgt_a[i], trail_a[i], lim, i + int(exp_a[i]), float(size_a[i]))
 
         if eq <= 0:
             break

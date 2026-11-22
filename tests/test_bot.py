@@ -55,6 +55,23 @@ def test_entry_then_end_of_day_exit(tmp_path, h1):
     assert len(tr) == 1 and tr.reason.iloc[0] == "end of day"
 
 
+def test_strategy_size_multiplier_scales_risk(tmp_path, h1, monkeypatch):
+    from deltabot.strategies.williams_intraday import WilliamsIntraday
+    orig = WilliamsIntraday.signals
+
+    def half(self, df):
+        s = orig(self, df)
+        s["size"] = 0.5
+        return s
+    monkeypatch.setattr(WilliamsIntraday, "signals", half)
+    t, _ = first_long(h1)
+    fc = FakeClient(h1[h1.index <= t])
+    fc.price = float(h1.close[t])
+    bot = make_bot(tmp_path, fc)
+    bot.tick(now=at(t))
+    assert bot.store.positions["BTCUSD"].risk_usd == pytest.approx(50, rel=0.05)    # half of 1%
+
+
 def test_exchange_stop_detected(tmp_path, h1):
     t, stop = first_long(h1)
     fc = FakeClient(h1[h1.index <= t])
